@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+BIN="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+usage() {
+  local exit_code="${1:-0}"
+
+  cat << EOL
+usage: wordsetc [OPTIONS] subcommand [SUBCOMMAND_ARGS]
+
+  -h, --help    Show this help message and exit
+
+subcommands:
+EOL
+
+  for subcommand in "$BIN"/*; do
+    if [ -x "$subcommand" ]; then
+      subcommand_name="$(basename "$subcommand")"
+      echo "  $subcommand_name"
+    fi
+  done
+
+  exit "$exit_code"
+}
+
+subcommand=""
+subcommand_args=()
+
+while (("$#")); do
+  case "$1" in
+    -h | --help)
+      usage 0
+      ;;
+
+    *)
+      if [ -z "$subcommand" ]; then
+        subcommand="$1"
+        shift
+      else
+        subcommand_args+=("$@")
+        break
+      fi
+      ;;
+  esac
+done
+
+if [ -z "$subcommand" ]; then
+  usage 1
+fi
+
+if [ -x "$BIN/$subcommand" ]; then
+  exec "$BIN/$subcommand" "${subcommand_args[@]}"
+elif [ -n "$subcommand" ]; then
+  echo "Unrecognized sub-command: $subcommand" >&2
+  exit 1
+else
+  usage 1
+fi

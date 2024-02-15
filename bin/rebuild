@@ -1,0 +1,334 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Carp        qw(croak);
+use JSON::XS    qw(encode_json);
+use Pod::Usage  qw(pod2usage);
+use File::Temp  qw(tempfile);
+use FindBin     qw();
+
+#-------------------------------------------------------------------------------
+# External dependencies
+#-------------------------------------------------------------------------------
+eval "use JSON::XS";
+if ($@) {
+  warn "This script requires the JSON::XS module.\n";
+  warn "You can install it by running:\n";
+
+  if (system("which cpanm >/dev/null") == 0) {
+    warn "  cpanm JSON::XS\n";
+  } else {
+    warn "  cpan JSON::XS\n";
+  }
+
+  exit 1;
+}
+
+#-------------------------------------------------------------------------------
+# Globals
+#-------------------------------------------------------------------------------
+my $verbose     = 0;
+my $output_file = '/tmp/wordsetc.jsonl';
+my $input_dir   = "$FindBin::Bin/../words";
+
+#-------------------------------------------------------------------------------
+# Grammar
+#-------------------------------------------------------------------------------
+my $GRAMMAR = qr{
+  (?(DEFINE)
+    (?<ListSeparator> , \s+)
+    (?<PartOfSpeech>  adj|adv|article|conj|interj|n|prep|pron|v)
+    (?<DefChar>       [^\[\]])
+    (?<NonDefChar>    [\[\]])
+    (?<Word>          [A-Z]+)
+    (?<Entry>         [^/]+)
+    (?<Entries>       (?&Entry) (?:\s+ / \s+ (?&Entry))*)
+    (?<WordList>      (?&Word) (?:(?&ListSeparator) (?&Word))*)
+    (?<LinkedTerm>    [a-z]+)
+    (?<Link>          <(?&LinkedTerm)=(?&PartOfSpeech)>)
+    (?<Definition>    .*? (?= \s+ \[(?&PartOfSpeech)\]))
+    (?<RelWord>       (?&Word) \s+ \[(?&PartOfSpeech)\])
+    (?<RelWordList>   (?&RelWord) (?:(?&ListSeparator) (?&RelWord))*)
+  )
+}x;
+
+my $ENTRY = qr{
+  # Definition string, which may contain any number of formats, followed by
+  # space.
+  (?: ( .*?(?=\s+\[)) \s+)?
+
+  # The part of speech, surrounded by square brackets.
+  \[ ((?&PartOfSpeech)) (?: \s+ ((?&WordList)))? \]
+
+  # Variant word forms, expressed as `: FOO [n], BAR [v]`
+  (?: \s+ : \s+ ((?&RelWordList)) )?
+
+  $GRAMMAR
+}x;
+
+my $RELATED_TERM = qr{ ((?&Word)) \s+ \[ ((?&PartOfSpeech)) \] $GRAMMAR }x;
+my $LINKED_DEF   = qr{ < ((?&LinkedTerm)) = ((?&PartOfSpeech)) > $GRAMMAR }x;
+my $LINKED_TERM  = qr{ (?&Link) $GRAMMAR }x;
+
+#-------------------------------------------------------------------------------
+# Functions
+#-------------------------------------------------------------------------------
+sub parse_line {
+  my $line = shift;
+
+  my ($term, $definitions) = split / /, $line, 2;
+  my $key = join '', sort split //, $term;
+  my @entries = map{ parse_entry($_) } split ' / ', $definitions;
+
+  return {
+    source  => $line,
+    term    => $term,
+    key     => $key,
+    entries => \@entries,
+  };
+}
+
+sub parse_entry {
+  my $entry = shift;
+
+  my ($def, $part, $vars, $rels) = $entry =~ $ENTRY;
+
+  my $definition = parse_definition($def);
+  my $variants   = parse_word_list($vars);
+  my $related    = parse_related_term_list($rels);
+
+  return {
+    definition => $definition,
+    part       => $part,
+    variants   => $variants,
+    related    => $related,
+  };
+}
+
+sub parse_word_list {
+  my $subject = shift // '';
+  my @phrases = split /, /, $subject;
+  return \@phrases;
+}
+
+sub parse_related_term_list {
+  my $subject = shift // '';
+  my $phrases = parse_word_list($subject);
+  my @terms   = map{ parse_related_term($_) } @$phrases;
+  return \@terms;
+}
+
+sub parse_related_term {
+  my $subject = shift;
+  my ($word, $part) = $subject =~ $RELATED_TERM;
+  return {term => $word, part => $part};
+}
+
+sub parse_definition {
+  my $def = shift;
+
+  if (!defined $def || $def eq '') {
+    return {copy => 'N/A', links => [], refs => []};
+  }
+  elsif ($def =~ $LINKED_TERM) {
+    my @pieces = split /(<|>)/, $def;
+    my @links;
+    my @def;
+
+    while (defined(my $piece = shift @pieces)) {
+      if ($piece eq '<') {
+        my $innards = shift @pieces;
+        shift @pieces; # discard closing angle bracket
+
+        my ($link, $part) = split '=', $innards;
+
+        push @links, {term => $link, part => $part};
+        push @def, $link;
+      }
+      else {
+        push @def, $piece;
+      }
+    }
+
+    my $definition = join '', @def;
+    return {copy => $definition, links => \@links, refs => []};
+  }
+  else {
+    my @pieces = split /({|})/, $def;
+    my @refs;
+    my @def;
+
+    while (defined(my $piece = shift @pieces)) {
+      if ($piece eq '{') {
+        my $innards = shift @pieces;
+        shift @pieces; # discard closing brace
+
+        my ($ref, $part) = split '=', $innards;
+
+        push @refs, {term => $ref, part => $part};
+        push @def, $ref;
+      }
+      else {
+        push @def, $piece;
+      }
+    }
+
+    my $definition = join '', @def;
+    return {copy => $definition, links => [], refs => \@refs};
+  }
+}
+
+sub input {
+  my @files = glob "$input_dir/*.txt";
+  my $fh;
+
+  return sub{
+    NEXT_FILE: unless (defined $fh) {
+      my $file = shift @files // return;
+
+      open $fh, '<', $file
+        or croak "cannot open input file $file: $!";
+    }
+
+    my $line = <$fh>;
+
+    unless (defined $line) {
+      close $fh;
+      undef $fh;
+      goto NEXT_FILE;
+    }
+
+    chomp $line;
+    return $line;
+  };
+}
+
+sub output {
+  open my $fh, '>', $output_file
+    or croak "can't open '/tmp/wordsetc.json' for output: $!";
+
+  return sub{
+    while (my $line = shift) {
+      chomp $line;
+
+      print $fh "$line\n";
+
+      if ($verbose) {
+        warn "$line\n";
+      }
+    }
+  };
+}
+
+#-------------------------------------------------------------------------------
+# Args
+#-------------------------------------------------------------------------------
+if ("@ARGV" =~ /--help|-h/) {
+  pod2usage({ -verbose => 2, -exitval => 0 });
+  exit 0;
+}
+
+if ("@ARGV" =~ /--short-help|-H/) {
+  print "rebuilds the dictionary file\n";
+  exit 0;
+}
+
+if ("@ARGV" =~ /--verbose|-v/) {
+  $verbose = 1;
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+my $in  = input();
+my $out = output();
+my %seen;
+
+while (defined(my $line = $in->())) {
+  chomp $line;
+  my $word = parse_line($line);
+
+  next if $seen{$word->{term}}++;
+
+  my $json = encode_json($word);
+  $out->($json);
+}
+
+warn "Dictionary data written to $output_file\n";
+
+__DATA__
+
+=head1 NAME
+
+C<wordsetc rebuild> - Parse a dictionary file and output JSONL
+
+=head1 SYNOPSIS
+
+C<cat dictionary.txt | wordsetc rebuild>
+
+=head1 OPTIONS
+
+=over
+
+=item --help | -h
+
+Print this help message and exit.
+
+=item --short-help | -H
+
+Print a brief help message and exit.
+
+=back
+
+=head1 OUTPUT
+
+Outputs JSONL, where each line is a JSON object representing a word in the
+dictionary in the following format:
+
+  {
+    # The original line from the dictionary file.
+    "source": "FNORD n A word used to describe <something=n> that is not real; {nothingburger=n} [n] : FNORDS [n], AFNORDABLE [adj]",
+
+    # The term being defined.
+    "term": "FNORD",
+
+    # The key is the sorted letters of the term, used for lookups by letters.
+    "key": "DFNOR",
+
+    # An array of definitions for the term.
+    "entries": [
+      {
+        # The part of speech of the term.
+        "part": "n",
+
+        "definition": {
+          # The definition of the term.
+          "copy": "A word used to describe something that is not real",
+
+          # An array of terms linked within the definition copy.
+          "links": [
+            {"term": "something", "part": "n"}
+          ],
+
+          # An array of terms referenced within the definition. These are
+          # generally when the dictionary is aliasing the term to another term.
+          "refs": [
+            {"term": "nothingburger", "part": "n"}
+          ]
+        }
+
+        # Variant word forms.
+        "variants": ["FNORDS", "AFNORDABLE"],
+
+        # An array of related terms.
+        "related": [
+          {"term": "FNORDS", "part": "n"}
+        ]
+
+      }
+    ]
+  }
+
+=cut

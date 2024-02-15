@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+# ------------------------------------------------------------------------------
+# Globals
+# ------------------------------------------------------------------------------
+DICT="/tmp/wordsetc.jsonl"
+WORDS=()
+INSPECT=0
+
+# ------------------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------------------
+usage() {
+  local exit_code="${1:-0}"
+
+  cat << EOL
+usage: wordsetc define [OPTIONS] word
+
+  -h, --help    Show this help message and exit
+
+EOL
+
+  exit "$exit_code"
+}
+
+inspect() {
+  if [[ "$INSPECT" == true ]]; then
+    tee /dev/stderr
+  else
+    cat
+  fi
+}
+
+match-term() {
+  jq -e 'select(.term == ("'"$1"'" | ascii_upcase))'
+}
+
+format-result() {
+  jq -r '.entries[] | {
+    "Part":       .part,
+    "Definition": .definition.copy,
+    "References": [.definition.refs[] | (.term | ascii_downcase) + " (" + .part + ")"],
+    "Links":      [.definition.links[] | (.term | ascii_downcase) + " (" + .part + ")"],
+    "Variants":   [.variants[] | ascii_downcase],
+    "Related":    [.related[] | (.term | ascii_downcase) + " (" + .part + ")"],
+  }'
+}
+
+# ------------------------------------------------------------------------------
+# Argument parsing and validation
+# ------------------------------------------------------------------------------
+while (("$#")); do
+  case "$1" in
+    -h | --help)
+      usage 0
+      ;;
+
+    -i | --inspect)
+      INSPECT=true
+      shift
+      ;;
+
+    *)
+      WORDS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "${WORDS[*]}" ]]; then
+  echo "Error: no words provided"
+  usage 1
+fi
+
+if [[ ! -f "$DICT" ]]; then
+  echo "Error: dictionary file not found at '$DICT'" >&2
+  exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+  echo "Error: 'jq' not found in PATH" >&2
+  exit 1
+fi
+
+if ! command -v grep &> /dev/null; then
+  echo "Error: 'grep' not found in PATH" >&2
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+for WORD in "${WORDS[@]}"; do
+  if grep -iq "$WORD" "$DICT"; then
+    grep -i "$WORD" "$DICT" \
+      | match-term "$WORD" \
+      | inspect \
+      | format-result
+  else
+    echo "no definition found for '$WORD'" >&2
+  fi
+done
