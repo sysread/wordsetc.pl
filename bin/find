@@ -1,0 +1,99 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use feature qw(say);
+use Pod::Usage qw(pod2usage);
+
+use constant DICT => '/tmp/wordsetc.jsonl';
+
+#-------------------------------------------------------------------------------
+# Check arguments
+#-------------------------------------------------------------------------------
+if (@ARGV == 0 || "@ARGV" =~ /(?:-h|--help)/) {
+  pod2usage(-verbose => 2);
+}
+
+#-------------------------------------------------------------------------------
+# External dependencies
+#-------------------------------------------------------------------------------
+eval "use JSON::XS qw(encode_json decode_json)";
+if ($@) {
+  warn "This script requires the JSON::XS module.\n";
+  warn "You can install it by running:\n";
+
+  if (system("which cpanm >/dev/null") == 0) {
+    warn "  cpanm JSON::XS\n";
+  } else {
+    warn "  cpan JSON::XS\n";
+  }
+
+  exit 1;
+}
+
+unless (-f DICT) {
+  warn "The dictionary file is missing. You can create it by running:\n\n\twordsetc rebuild\n";
+  exit 1;
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+my %words = map{ uc $_ => 1 } @ARGV;
+
+my $keys = join '|',
+  map{ join '', sort split //, uc $_ }
+  keys %words;
+
+my $re_keys = qr/^(?:$keys):/;
+
+open my $in, '<', DICT
+  or die "Can't open " . DICT . ": $!";
+
+while (defined(my $line = <$in>)) {
+  chomp $line;
+
+  next unless $line =~ /$re_keys/;
+
+  my ($json_str) = $line =~ /^[^:]*?:(.*)$/;
+  my $json = decode_json($json_str);
+  next unless $words{$json->{term}};
+
+  print "$json_str\n";
+}
+
+__DATA__
+
+=head1 NAME
+
+C<wordsetc find> - Look up words in the wordsetc dictionary
+
+=head1 SYNOPSIS
+
+C<wordsetc find <word> [<word> ...]>
+
+=head1 DESCRIPTION
+
+This command looks up the given words in the dictionary and outputs a JSON
+object for each word that is found. See C<wordsetc rebuild -h> for more
+information on the format of the JSON objects.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-h>, B<--help>
+
+Print a brief help message and exits.
+
+=back
+
+=head1 SEE ALSO
+
+=over 4
+
+=item L<wordsetc-rebuild(1)>
+
+=back
+
+=cut
