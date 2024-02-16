@@ -1,104 +1,93 @@
-#!/usr/bin/env bash
+#!/usr/bin/env perl
 
-set -eu -o pipefail
+use strict;
+use warnings;
+use feature qw(say);
 
-# ------------------------------------------------------------------------------
-# Globals
-# ------------------------------------------------------------------------------
-DICT="/tmp/wordsetc.jsonl"
-WORDS=()
-INSPECT=0
+#-------------------------------------------------------------------------------
+# External dependencies
+#-------------------------------------------------------------------------------
+eval "use JSON::XS qw(encode_json decode_json)";
+if ($@) {
+  warn "This script requires the JSON::XS module.\n";
+  warn "You can install it by running:\n";
 
-# ------------------------------------------------------------------------------
-# Functions
-# ------------------------------------------------------------------------------
-usage() {
-  local exit_code="${1:-0}"
+  if (system("which cpanm >/dev/null") == 0) {
+    warn "  cpanm JSON::XS\n";
+  } else {
+    warn "  cpan JSON::XS\n";
+  }
 
-  cat << EOL
-usage: wordsetc define [OPTIONS] word
-
-  -h, --help    Show this help message and exit
-
-EOL
-
-  exit "$exit_code"
+  exit 1;
 }
 
-inspect() {
-  if [[ "$INSPECT" == true ]]; then
-    tee /dev/stderr
-  else
-    cat
-  fi
+#-------------------------------------------------------------------------------
+# Subroutines
+#-------------------------------------------------------------------------------
+sub build_key {
+  my $term = shift;
+  join '', sort split //, uc $term;
 }
 
-match-term() {
-  jq -e 'select(.term == ("'"$1"'" | ascii_upcase))'
+sub format_word {
+  my $refword = shift;
+
+  if (ref $refword eq 'HASH') {
+    my $term    = $refword->{term};
+    my $part    = $refword->{part};
+    return "$term [$part]";
+  }
+  else {
+    return $refword;
+  }
 }
 
-format-result() {
-  jq -r '.entries[] | {
-    "Part":       .part,
-    "Definition": .definition.copy,
-    "References": [.definition.refs[] | (.term | ascii_downcase) + " (" + .part + ")"],
-    "Links":      [.definition.links[] | (.term | ascii_downcase) + " (" + .part + ")"],
-    "Variants":   [.variants[] | ascii_downcase],
-    "Related":    [.related[] | (.term | ascii_downcase) + " (" + .part + ")"],
-  }'
+sub format_word_list {
+  my $refwords = shift;
+  map { format_word($_) } @$refwords;
 }
 
-# ------------------------------------------------------------------------------
-# Argument parsing and validation
-# ------------------------------------------------------------------------------
-while (("$#")); do
-  case "$1" in
-    -h | --help)
-      usage 0
-      ;;
+sub format_result {
+  my $json = shift;
+  my @buffer;
 
-    -i | --inspect)
-      INSPECT=true
-      shift
-      ;;
+  push @buffer,  "$json->{term}:";
 
-    *)
-      WORDS+=("$1")
-      shift
-      ;;
-  esac
-done
+  for my $entry (@{ $json->{entries} }) {
+    push @buffer,  "  Part of speech: $entry->{part}";
+    push @buffer,  "      Definition: $entry->{definition}{copy}";
+    push @buffer,  "      References: " . join(', ', format_word_list($entry->{definition}{references}));
+    push @buffer,  "           Links: " . join(', ', format_word_list($entry->{definition}{links}));
+    push @buffer,  "        Variants: " . join(', ', format_word_list($entry->{variants}));
+    push @buffer,  "         Related: " . join(', ', format_word_list($entry->{related}));
+  }
 
-if [[ -z "${WORDS[*]}" ]]; then
-  echo "Error: no words provided"
-  usage 1
-fi
+  join("\n", @buffer);
+}
 
-if [[ ! -f "$DICT" ]]; then
-  echo "Error: dictionary file not found at '$DICT'" >&2
-  exit 1
-fi
-
-if ! command -v jq &> /dev/null; then
-  echo "Error: 'jq' not found in PATH" >&2
-  exit 1
-fi
-
-if ! command -v grep &> /dev/null; then
-  echo "Error: 'grep' not found in PATH" >&2
-  exit 1
-fi
-
-# ------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Main
-# ------------------------------------------------------------------------------
-for WORD in "${WORDS[@]}"; do
-  if grep -iq "$WORD" "$DICT"; then
-    grep -i "$WORD" "$DICT" \
-      | match-term "$WORD" \
-      | inspect \
-      | format-result
-  else
-    echo "no definition found for '$WORD'" >&2
-  fi
-done
+#-------------------------------------------------------------------------------
+my %words = map{ uc $_ => 1 } @ARGV;
+my %keys  = map{ build_key($_) => 1 } keys %words;
+my %found = map{ $_ => undef } keys %words;
+
+open my $in, '<', '/tmp/wordsetc.jsonl'
+  or die "Can't open /tmp/wordsetc.jsonl: $!";
+
+while (defined(my $line = <$in>)) {
+  chomp $line;
+
+  my ($key, $json_str) = split /:/, $line, 2;
+  next unless $keys{$key};
+
+  my $json = decode_json($json_str);
+  next unless $words{$json->{term}};
+
+  $found{$json->{term}} = format_result($json);
+}
+
+for my $word (sort keys %words) {
+  say $found{$word} // "$word:\n\tNot found";
+  say '';
+}

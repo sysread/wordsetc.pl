@@ -3,16 +3,15 @@
 use strict;
 use warnings;
 
-use Carp        qw(croak);
-use JSON::XS    qw(encode_json);
-use Pod::Usage  qw(pod2usage);
-use File::Temp  qw(tempfile);
-use FindBin     qw();
+use Carp       qw(croak);
+use Pod::Usage qw(pod2usage);
+use File::Temp qw(tempfile);
+use FindBin    qw();
 
 #-------------------------------------------------------------------------------
 # External dependencies
 #-------------------------------------------------------------------------------
-eval "use JSON::XS";
+eval "use JSON::XS qw(encode_json)";
 if ($@) {
   warn "This script requires the JSON::XS module.\n";
   warn "You can install it by running:\n";
@@ -249,11 +248,12 @@ my %seen;
 while (defined(my $line = $in->())) {
   chomp $line;
   my $word = parse_line($line);
+  my $key  = $word->{key};
 
   next if $seen{$word->{term}}++;
 
   my $json = encode_json($word);
-  $out->($json);
+  $out->("$key:$json");
 }
 
 warn "Dictionary data written to $output_file\n";
