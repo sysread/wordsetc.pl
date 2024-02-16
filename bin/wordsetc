@@ -35,13 +35,10 @@ while (("$#")); do
       ;;
 
     *)
-      if [ -z "$subcommand" ]; then
-        subcommand="$1"
-        shift
-      else
-        subcommand_args+=("$@")
-        break
-      fi
+      subcommand="$1"
+      shift
+      subcommand_args+=("$@")
+      break
       ;;
   esac
 done

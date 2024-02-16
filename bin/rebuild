@@ -222,20 +222,21 @@ sub output {
 }
 
 #-------------------------------------------------------------------------------
-# Args
+# Check arguments
 #-------------------------------------------------------------------------------
-if ("@ARGV" =~ /--help|-h/) {
-  pod2usage({ -verbose => 2, -exitval => 0 });
-  exit 0;
-}
+for (@ARGV) {
+  if (/--help/ || /-h/) {
+    pod2usage({ -verbose => 2, -exitval => 0 });
+  }
 
-if ("@ARGV" =~ /--short-help|-H/) {
-  print "rebuilds the dictionary file\n";
-  exit 0;
-}
+  if (/--short-help/ || /-H/) {
+    print "looks up the given words in the wordsetc dictionary\n";
+    exit 0;
+  }
 
-if ("@ARGV" =~ /--verbose|-v/) {
-  $verbose = 1;
+  if (/--verbose|-v/) {
+    $verbose = 1;
+  }
 }
 
 #-------------------------------------------------------------------------------

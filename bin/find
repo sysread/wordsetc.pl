@@ -10,8 +10,15 @@ use constant DICT => '/tmp/wordsetc.jsonl';
 #-------------------------------------------------------------------------------
 # Check arguments
 #-------------------------------------------------------------------------------
-if (@ARGV == 0 || "@ARGV" =~ /(?:-h|--help)/) {
-  pod2usage(-verbose => 2);
+for (@ARGV) {
+  if (/--help/ || /-h/) {
+    pod2usage({ -verbose => 2, -exitval => 0 });
+  }
+
+  if (/--short-help/ || /-H/) {
+    print "looks up the given words in the wordsetc dictionary\n";
+    exit 0;
+  }
 }
 
 #-------------------------------------------------------------------------------
