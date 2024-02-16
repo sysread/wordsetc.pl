@@ -4,9 +4,8 @@ use strict;
 use warnings;
 use feature qw(say);
 
-#-------------------------------------------------------------------------------
-# External dependencies
-#-------------------------------------------------------------------------------
+use constant DICT => '/tmp/wordsetc.jsonl';
+
 eval "use JSON::XS qw(encode_json decode_json)";
 if ($@) {
   warn "This script requires the JSON::XS module.\n";
@@ -21,73 +20,30 @@ if ($@) {
   exit 1;
 }
 
-#-------------------------------------------------------------------------------
-# Subroutines
-#-------------------------------------------------------------------------------
-sub build_key {
-  my $term = shift;
-  join '', sort split //, uc $term;
+unless (-f DICT) {
+  warn "The dictionary file is missing. You can create it by running:\n\n\twordsetc rebuild\n";
+  exit 1;
 }
 
-sub format_word {
-  my $refword = shift;
-
-  if (ref $refword eq 'HASH') {
-    my $term    = $refword->{term};
-    my $part    = $refword->{part};
-    return "$term [$part]";
-  }
-  else {
-    return $refword;
-  }
-}
-
-sub format_word_list {
-  my $refwords = shift;
-  map { format_word($_) } @$refwords;
-}
-
-sub format_result {
-  my $json = shift;
-  my @buffer;
-
-  push @buffer,  "$json->{term}:";
-
-  for my $entry (@{ $json->{entries} }) {
-    push @buffer,  "  Part of speech: $entry->{part}";
-    push @buffer,  "      Definition: $entry->{definition}{copy}";
-    push @buffer,  "      References: " . join(', ', format_word_list($entry->{definition}{references}));
-    push @buffer,  "           Links: " . join(', ', format_word_list($entry->{definition}{links}));
-    push @buffer,  "        Variants: " . join(', ', format_word_list($entry->{variants}));
-    push @buffer,  "         Related: " . join(', ', format_word_list($entry->{related}));
-  }
-
-  join("\n", @buffer);
-}
-
-#-------------------------------------------------------------------------------
-# Main
-#-------------------------------------------------------------------------------
 my %words = map{ uc $_ => 1 } @ARGV;
-my %keys  = map{ build_key($_) => 1 } keys %words;
-my %found = map{ $_ => undef } keys %words;
 
-open my $in, '<', '/tmp/wordsetc.jsonl'
-  or die "Can't open /tmp/wordsetc.jsonl: $!";
+my $keys = join '|',
+  map{ join '', sort split //, uc $_ }
+  keys %words;
+
+my $re_keys = qr/^(?:$keys):/;
+
+open my $in, '<', DICT
+  or die "Can't open " . DICT . ": $!";
 
 while (defined(my $line = <$in>)) {
   chomp $line;
 
-  my ($key, $json_str) = split /:/, $line, 2;
-  next unless $keys{$key};
+  next unless $line =~ /$re_keys/;
 
+  my ($json_str) = $line =~ /^[^:]*?:(.*)$/;
   my $json = decode_json($json_str);
   next unless $words{$json->{term}};
 
-  $found{$json->{term}} = format_result($json);
-}
-
-for my $word (sort keys %words) {
-  say $found{$word} // "$word:\n\tNot found";
-  say '';
+  print "$json_str\n";
 }
