@@ -1,0 +1,34 @@
+#!/usr/bin/env perl
+
+#-------------------------------------------------------------------------------
+# TODO
+# - match existing patterns on the board
+# - scoring
+#   - exclude wildcards
+#   - exclude board tiles
+#   - rate score per point played
+#   - rate score per tile
+#-------------------------------------------------------------------------------
+
+use Mojolicious::Lite -signatures;
+use FindBin qw();
+
+our $BIN = "$FindBin::Bin/../bin/wordsetc";
+
+sub get_solutions {
+  my $tiles = shift;
+  my $out   = `$BIN expand $tiles | $BIN solve`;
+  join ", \n", split /\n/, $out;
+}
+
+get '/:solve' => sub ($c) {
+  my $tiles     = $c->param('tiles');
+  my $solutions = get_solutions($tiles);
+
+  $c->render(
+    data => qq|{"solutions":[$solutions]}|,
+    format => 'json'
+  );
+};
+
+app->start;

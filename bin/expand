@@ -90,18 +90,24 @@ sub expand_wildcards {
 }
 
 sub expand_subsets {
-  my %seen;
+  my %subsets;
 
-  while (defined(my $set = shift)) {
-    $seen{$set} = 1;
+  while (defined(my $str = shift)) {
+    my @queue = ("");
 
-    while (length $set > 1) {
-      $set = substr $set, 1;
-      $seen{$set} = 1;
+    for my $ch (split //, $str) {
+      my $len = scalar @queue;
+
+      for (my $i = 0; $i < $len; ++$i) {
+        my $subset = $queue[$i];
+        push @queue, $subset . $ch;
+      }
     }
+
+    $subsets{$_} = 1 for @queue;
   }
 
-  keys %seen;
+  keys %subsets;
 }
 
 sub expand {
@@ -129,7 +135,11 @@ expand - generates all possible subsets of a set of letters, with ? as a wildcar
 
 =head1 SYNOPSIS
 
-expand [options]
+expand foo
+# Output: F, FO, FOO, O, OO, O
+
+expand a?
+# Output: A..Z, AA, AB, AC, ..., AZ
 
 =head1 OPTIONS
 
