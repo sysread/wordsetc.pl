@@ -1,0 +1,156 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use feature qw(say);
+
+use Pod::Usage qw(pod2usage);
+
+use constant DICT => '/tmp/wordsetc.jsonl';
+
+#-------------------------------------------------------------------------------
+# Arguments
+#-------------------------------------------------------------------------------
+for (@ARGV) {
+  if (/--help/ || /-h/) {
+    pod2usage({ -verbose => 2, -exitval => 0 });
+  }
+
+  if (/--short-help/ || /-H/) {
+    print "does a thing";
+    exit 0;
+  }
+
+  if ($_ !~ /^[a-zA-Z]+$/) {
+    pod2usage({ -verbose => 0, -exitval => 1, -message => "invalid: '$_' - letter sets may only include a-zA-Z\n"});
+  }
+}
+
+#-------------------------------------------------------------------------------
+# External dependencies
+#-------------------------------------------------------------------------------
+unless (-f DICT) {
+  warn "The dictionary file is missing. You can create it by running:\n\n\twordsetc rebuild\n";
+  exit 1;
+}
+
+#-------------------------------------------------------------------------------
+# Subroutines
+#-------------------------------------------------------------------------------
+sub key {
+  join '', sort split //, uc $_[0];
+}
+
+sub key_regex {
+  my %keys = map{ key(uc($_)) => 1 } @_;
+  my $keys = join '|', sort keys %keys;
+  qr/^(?:$keys):/;
+}
+
+sub words {
+  my @words = @ARGV;
+
+  return sub{
+    if (@words) {
+      return shift @words;
+    }
+
+    return if -t STDIN;
+
+    if (defined(my $word = <STDIN>)) {
+      chomp $word;
+      return $word;
+    }
+
+    return;
+  };
+}
+
+sub search {
+  my ($needle) = @_;
+
+  open my $fh, '<', DICT
+    or die "Can't open " . DICT . ": $!";
+
+  my $file_size = -s $fh;
+  my ($left, $right) = (0, $file_size);
+  my $found;
+
+  while ($left <= $right) {
+    my $mid = int(($left + $right) / 2);
+
+    # Seek to the middle position in bytes
+    seek $fh, $mid, 0;
+
+    # Read forward to the next newline to ensure we're at the start of a line,
+    # but not if we're at the start of the file.
+    <$fh> if $mid != 0;
+
+    # Read the line
+    my $line = <$fh>;
+
+    # If we've reached the end of the file without finding a match, break
+    last unless defined $line;
+
+    chomp $line;
+
+    # Extract the word from the line
+    my ($word) = $line =~ /^([^:]+)/;
+
+    # Move the left boundary to the current position
+    if ($word lt $needle) {
+      $left = tell $fh;
+    }
+    # Move the right boundary to just before the mid position
+    elsif ($word gt $needle) {
+      $right = $mid - 1;
+    }
+    # Found the word
+    else {
+      $found = $line;
+      $found =~ s/^[^:]*?://;
+      last;
+    }
+  }
+
+  close $fh;
+  return $found;
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+my $words = words;
+
+while (defined(my $word = $words->())) {
+  if (defined(my $line = search($word))) {
+    say $line;
+  }
+}
+
+__DATA__
+
+=head1 NAME
+
+solve - finds sorted word keys in the dictionary
+
+=head1 SYNOPSIS
+
+wordsetc solve SORTEDCHARS
+wordsetc expand TILESTRING?? | wordsetc solve
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--help>
+
+Prints a brief help message and exits.
+
+=back
+
+=head1 DESCRIPTION
+
+B<solve> does a thing.
+
+=cut

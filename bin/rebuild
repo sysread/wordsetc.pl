@@ -205,11 +205,13 @@ sub input {
 }
 
 sub output {
-  open my $fh, '>', $output_file
-    or croak "can't open '/tmp/wordsetc.json' for output: $!";
+  my ($fh, $filename) = tempfile;
+  my $done = 0;
 
   return sub{
-    while (my $line = shift) {
+    return if $done;
+
+    if (defined(my $line = shift)) {
       chomp $line;
 
       print $fh "$line\n";
@@ -217,6 +219,17 @@ sub output {
       if ($verbose) {
         warn "$line\n";
       }
+    }
+    else {
+      $done = 1;
+
+      my $success = system("cat $filename | sort > $output_file") == 0;
+      my $error = $!;
+
+      unlink $filename;
+
+      croak "could not write output file $output_file: $error"
+        unless $success;
     }
   };
 }
@@ -256,6 +269,9 @@ while (defined(my $line = $in->())) {
   my $json = encode_json($word);
   $out->("$key:$json");
 }
+
+# Complete output by calling without an argument.
+$out->();
 
 warn "Dictionary data written to $output_file\n";
 

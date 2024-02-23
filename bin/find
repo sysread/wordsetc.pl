@@ -44,29 +44,36 @@ unless (-f DICT) {
 }
 
 #-------------------------------------------------------------------------------
+# Subroutines
+#-------------------------------------------------------------------------------
+sub key {
+  join '', sort split //, uc $_[0];
+}
+
+sub key_regex {
+  my %keys = map{ key(uc($_)) => 1 } @_;
+  my $keys = join '|', sort keys %keys;
+  qr/^(?:$keys):/;
+}
+
+#-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
 my %words = map{ uc $_ => 1 } @ARGV;
-
-my $keys = join '|',
-  map{ join '', sort split //, uc $_ }
-  keys %words;
-
-my $re_keys = qr/^(?:$keys):/;
+my $re_keys = key_regex(keys %words);
 
 open my $in, '<', DICT
   or die "Can't open " . DICT . ": $!";
 
 while (defined(my $line = <$in>)) {
   chomp $line;
-
   next unless $line =~ /$re_keys/;
 
-  my ($json_str) = $line =~ /^[^:]*?:(.*)$/;
-  my $json = decode_json($json_str);
-  next unless $words{$json->{term}};
+  my ($json) = $line =~ /^[^:]*?:(.*)$/;
+  my $entry = decode_json($json);
+  next unless $words{$entry->{term}};
 
-  print "$json_str\n";
+  print "$json\n";
 }
 
 __DATA__
