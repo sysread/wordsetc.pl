@@ -1,0 +1,146 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use feature qw(say);
+
+use Pod::Usage qw(pod2usage);
+use JSON::XS   qw(encode_json);
+
+my @LETTERS = ('A' .. 'Z');
+
+#-------------------------------------------------------------------------------
+# Check arguments
+#-------------------------------------------------------------------------------
+my $letters;
+
+for (@ARGV) {
+  if (/--help/ || /-h/) {
+    pod2usage({ -verbose => 2, -exitval => 0 });
+  }
+
+  if (/--short-help/ || /-H/) {
+    say "looks up the given words in the wordsetc dictionary";
+    exit 0;
+  }
+
+  if (defined $letters) {
+    pod2usage({ -verbose => 0, -exitval => 1 });
+  }
+
+  if (/[^a-zA-Z?]/) {
+    die "Only characters a-zA-Z and ? are allowed\n";
+  }
+
+  if (($_ =~ tr/?//) > 3) {
+    die "A maximum of 3 wildcards is permitted\n";
+  }
+
+  $letters = uc $_;
+}
+
+#-------------------------------------------------------------------------------
+# External dependencies
+#-------------------------------------------------------------------------------
+eval "use JSON::XS qw(encode_json decode_json)";
+if ($@) {
+  warn "This script requires the JSON::XS module.\n";
+  warn "You can install it by running:\n";
+
+  if (system("which cpanm >/dev/null") == 0) {
+    warn "  cpanm JSON::XS\n";
+  } else {
+    warn "  cpan JSON::XS\n";
+  }
+
+  exit 1;
+}
+
+#-------------------------------------------------------------------------------
+# Subroutines
+#-------------------------------------------------------------------------------
+sub sort_chars {
+  join '', sort split //, $_[0];
+}
+
+sub expand_wildcards {
+  my @queue = @_;
+  my @results;
+
+  while (my $input = shift @queue) {
+    # Find the first wildcard in the string
+    my $idx = index $input, '?';
+
+    # If no wildcard is found, the string is done expanding. Add it to the
+    # results and continue with the next string in the queue.
+    if ($idx == -1) {
+      push @results, $input;
+      next;
+    }
+
+    # Otherwise, create a new string for each possible character that could
+    # replace the wildcard, and add it to the queue.
+    for my $char (@LETTERS) {
+      substr($input, $idx, 1, $char);
+      push @queue, $input;
+    }
+  }
+
+  @results;
+}
+
+sub expand_subsets {
+  my %seen;
+
+  while (defined(my $set = shift)) {
+    $seen{$set} = 1;
+
+    while (length $set > 1) {
+      $set = substr $set, 1;
+      $seen{$set} = 1;
+    }
+  }
+
+  keys %seen;
+}
+
+sub expand {
+  my $chars = sort_chars @_;
+
+  # Expand wildcards
+  my @expanded = expand_wildcards $chars;
+
+  # Add all subsets of @sets
+  my @sets = expand_subsets @expanded;
+
+  sort @sets;
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+say for expand $letters;
+
+__DATA__
+
+=head1 NAME
+
+expand - generates all possible subsets of a set of letters, with ? as a wildcard
+
+=head1 SYNOPSIS
+
+expand [options]
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--letters> I<letters>
+
+The letters to expand, with ? as a wildcard.
+
+=item B<--help>
+
+Prints the help message.
+
+=back
