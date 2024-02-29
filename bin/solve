@@ -4,9 +4,11 @@ use strict;
 use warnings;
 use feature qw(say);
 
+use FindBin qw();
 use Pod::Usage qw(pod2usage);
 
 use constant DICT => '/tmp/wordsetc.jsonl';
+use constant BIN  => "$FindBin::Bin/../bin/wordsetc";
 
 #-------------------------------------------------------------------------------
 # Arguments
@@ -37,27 +39,14 @@ unless (-f DICT) {
 #-------------------------------------------------------------------------------
 # Subroutines
 #-------------------------------------------------------------------------------
-sub key {
-  join '', sort split //, uc $_[0];
-}
-
-sub key_regex {
-  my %keys = map{ key(uc($_)) => 1 } @_;
-  my $keys = join '|', sort keys %keys;
-  qr/^(?:$keys):/;
-}
-
 sub words {
-  my @words = @ARGV;
+  my $tiles = shift;
+
+  open my $fh, '-|', BIN . " expand '$tiles'"
+    or die "Can't open pipe to wordsetc: $!";
 
   return sub{
-    if (@words) {
-      return shift @words;
-    }
-
-    return if -t STDIN;
-
-    if (defined(my $word = <STDIN>)) {
+    if (defined(my $word = <$fh>)) {
       chomp $word;
       return $word;
     }
@@ -120,7 +109,7 @@ sub search {
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
-my $words = words;
+my $words = words(shift @ARGV);
 
 while (defined(my $word = $words->())) {
   if (defined(my $line = search($word))) {
@@ -136,8 +125,7 @@ solve - finds sorted word keys in the dictionary
 
 =head1 SYNOPSIS
 
-wordsetc solve SORTEDCHARS
-wordsetc expand TILESTRING?? | wordsetc solve
+wordsetc solve TILES_STRING
 
 =head1 OPTIONS
 
@@ -148,9 +136,5 @@ wordsetc expand TILESTRING?? | wordsetc solve
 Prints a brief help message and exits.
 
 =back
-
-=head1 DESCRIPTION
-
-B<solve> does a thing.
 
 =cut
