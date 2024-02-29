@@ -8,7 +8,7 @@ use Getopt::Long  qw(GetOptions Configure);
 use JSON::XS      qw(encode_json);
 use Pod::Usage    qw(pod2usage);
 
-my @LETTERS = ('A' .. 'Z');
+my @LETTERS = ('a' .. 'z');
 
 #-------------------------------------------------------------------------------
 # Check arguments
@@ -135,7 +135,7 @@ expand --tiles foo
 # Output: F, FO, FOO, O, OO, O
 
 expand --tiles a?
-# Output: A..Z, AA, AB, AC, ..., AZ
+# Output: a..z, Aa, Ab, Ac, ..., Az
 
 =head1 OPTIONS
 
@@ -149,5 +149,7 @@ Prints the help message.
 
 The string of tiles to use for the search. The tiles string may only include
 characters a-zA-Z or ? for a blank tile/wildcard.
+
+Expanded wildcards are lowercase, while scoring tiles are uppercase.
 
 =back
