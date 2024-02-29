@@ -4,40 +4,35 @@ use strict;
 use warnings;
 use feature qw(say);
 
-use Pod::Usage qw(pod2usage);
-use JSON::XS   qw(encode_json);
+use Getopt::Long  qw(GetOptions Configure);
+use JSON::XS      qw(encode_json);
+use Pod::Usage    qw(pod2usage);
 
 my @LETTERS = ('A' .. 'Z');
 
 #-------------------------------------------------------------------------------
 # Check arguments
 #-------------------------------------------------------------------------------
-my $letters;
+my $TILES;
 
-for (@ARGV) {
-  if (/--help/ || /-h/) {
-    pod2usage({ -verbose => 2, -exitval => 0 });
-  }
+Configure("no_ignore_case");
 
-  if (/--short-help/ || /-H/) {
-    say "looks up the given words in the wordsetc dictionary";
-    exit 0;
-  }
+GetOptions(
+  'help|h'       => sub { pod2usage({ -verbose => 2, -exitval => 0 }) },
+  'short-help|H' => sub { print "looks up the given words in the wordsetc dictionary"; exit 0 },
+  'tiles|t=s'    => \$TILES,
+) or pod2usage({ -verbose => 0, -exitval => 1 });
 
-  if (defined $letters) {
-    pod2usage({ -verbose => 0, -exitval => 1 });
-  }
+die "required: --tiles\n"
+  unless defined $TILES;
 
-  if (/[^a-zA-Z?]/) {
-    die "Only characters a-zA-Z and ? are allowed\n";
-  }
+die "Only characters a-zA-Z and ? are allowed\n"
+  if $TILES =~ /[^a-zA-Z?]/;
 
-  if (($_ =~ tr/?//) > 3) {
-    die "A maximum of 3 wildcards is permitted\n";
-  }
+die "A maximum of 3 wildcards is permitted\n"
+  if ($TILES =~ tr/?//) > 3;
 
-  $letters = uc $_;
-}
+$TILES = uc $TILES;
 
 #-------------------------------------------------------------------------------
 # External dependencies
@@ -119,13 +114,14 @@ sub expand {
   # Add all subsets of @sets
   my @sets = expand_subsets @expanded;
 
-  sort @sets;
+  # Sort each possibility by character, then return the results, also sorted.
+  sort map { join '', sort split //, $_; } @sets;
 }
 
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
-say for expand $letters;
+say for expand $TILES;
 
 __DATA__
 
@@ -135,22 +131,23 @@ expand - generates all possible subsets of a set of letters, with ? as a wildcar
 
 =head1 SYNOPSIS
 
-expand foo
+expand --tiles foo
 # Output: F, FO, FOO, O, OO, O
 
-expand a?
+expand --tiles a?
 # Output: A..Z, AA, AB, AC, ..., AZ
 
 =head1 OPTIONS
 
 =over 4
 
-=item B<--letters> I<letters>
-
-The letters to expand, with ? as a wildcard.
-
 =item B<--help>
 
 Prints the help message.
+
+=item B<--tiles | -t>
+
+The string of tiles to use for the search. The tiles string may only include
+characters a-zA-Z or ? for a blank tile/wildcard.
 
 =back

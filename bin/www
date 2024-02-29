@@ -2,7 +2,6 @@
 
 #-------------------------------------------------------------------------------
 # TODO
-# - match existing patterns on the board
 # - scoring
 #   - exclude wildcards
 #   - exclude board tiles
@@ -17,13 +16,22 @@ our $BIN = "$FindBin::Bin/../bin/wordsetc";
 
 sub get_solutions {
   my $tiles = shift;
-  my $out   = `$BIN expand $tiles | $BIN solve`;
-  join ", \n", split /\n/, $out;
+  my $board = shift;
+  my $out   = `$BIN solve --tiles '$tiles' --board '$board'`;
+  my @buffer;
+
+  for my $line (split /\n/, $out) {
+    my ($subkey, $key, $word, $json) = split /:/, $line, 4;
+    push @buffer, $json;
+  }
+
+  join ", \n", @buffer;
 }
 
 get '/:solve' => sub ($c) {
-  my $tiles     = $c->param('tiles');
-  my $solutions = get_solutions($tiles);
+  my $tiles     = $c->param('tiles') // '';
+  my $board     = $c->param('board') // '';
+  my $solutions = get_solutions($tiles, $board);
 
   $c->render(
     data => qq|{"solutions":[$solutions]}|,

@@ -267,7 +267,7 @@ while (defined(my $line = $in->())) {
   next if $seen{$word->{term}}++;
 
   my $json = encode_json($word);
-  $out->("$key:$json");
+  $out->("$key:$word->{term}:$json");
 }
 
 # Complete output by calling without an argument.

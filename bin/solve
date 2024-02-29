@@ -2,9 +2,10 @@
 
 use strict;
 use warnings;
-use feature qw(say);
+use feature qw(say state);
 
 use FindBin qw();
+use Getopt::Long qw(GetOptions Configure);
 use Pod::Usage qw(pod2usage);
 
 use constant DICT => '/tmp/wordsetc.jsonl';
@@ -14,25 +15,33 @@ use constant BIN  => "$FindBin::Bin/../bin/wordsetc";
 # Arguments
 #-------------------------------------------------------------------------------
 my $TILES;
+my $BOARD;
 
-for (@ARGV) {
-  if (/--help/ || /-h/) {
-    pod2usage({ -verbose => 2, -exitval => 0 });
-  }
+Configure("no_ignore_case");
 
-  if (/--short-help/ || /-H/) {
-    print "does a thing";
-    exit 0;
-  }
+GetOptions(
+  'help|h'       => sub { pod2usage({ -verbose => 2, -exitval => 0 }) },
+  'short-help|H' => sub { print "does a thing"; exit 0 },
+  'tiles|t=s'    => \$TILES,
+  'board|b=s'    => \$BOARD,
+) or pod2usage({ -verbose => 0, -exitval => 1 });
 
-  if (/-t/ || /--tiles/) {
-    shift @ARGV;
-    $TILES = shift @ARGV;
+die "required: --tiles\n"
+  unless defined $TILES;
 
-    pod2usage({ -verbose => 0, -exitval => 1, -message => "invalid: '$_' - letter sets may only include a-zA-Z\n"})
-      if $TILES !~ /^[\?a-zA-Z]+$/;
-  }
-}
+die "invalid: '$TILES' - tiles may only include a-zA-Z and ? (blank tile)\n"
+  if $TILES !~ /^[\?a-zA-Z]+$/;
+
+die "A maximum of 3 wildcards is permitted\n"
+  if ($TILES =~ tr/?//) > 3;
+
+die "invalid: '$_' - the board pattern may only include a-zA-Z and _ for an empty space\n"
+  if defined $BOARD
+  && $BOARD !~ /^[_a-zA-Z]+$/;
+
+die "invalid: '$_' - the board pattern must include at least one empty space\n"
+  if defined $BOARD
+  && $BOARD !~ /_/;
 
 #-------------------------------------------------------------------------------
 # External dependencies
@@ -48,7 +57,7 @@ unless (-f DICT) {
 sub words {
   my $tiles = shift;
 
-  open my $fh, '-|', BIN . " expand '$tiles'"
+  open my $fh, '-|', BIN . " anagrams --tiles '$tiles'"
     or die "Can't open pipe to wordsetc: $!";
 
   return sub{
@@ -61,8 +70,53 @@ sub words {
   };
 }
 
-sub search {
-  my ($needle) = @_;
+#-------------------------------------------------------------------------------
+# Uses `terms` to filter the dictionary for entries that fit the user's board.
+# `terms` prepends a "subkey" of the characters in the word, less the
+# characters being used from the board, to each line. This allows us to use a
+# simple match against the key built from the user's tiles to match the word to
+# the line.
+#-------------------------------------------------------------------------------
+sub search_with_board {
+  my $needle = shift;
+  my $board  = shift;
+
+  state %terms = do{
+    my %terms;
+
+    open my $fh, '-|', BIN . " terms --board '$board'"
+      or die "Can't open pipe to wordsetc: $!";
+
+    while (defined(my $line = <$fh>)) {
+      chomp $line;
+
+      # Extract the char-sorted word key from the line
+      my ($key) = $line =~ /^([^:]+)/;
+
+      $terms{$key} = $line;
+    }
+
+    close $fh;
+
+    %terms;
+  };
+
+  for my $key (keys %terms) {
+    return $terms{$key}
+      if $key eq $needle;
+  }
+
+  return;
+}
+
+#-------------------------------------------------------------------------------
+# Binary search for the word in the dictionary. Prepends the word key to the
+# line, despite it being duplication of the key already prepended to the line
+# when the dictionary is built, to match the output of `search_with_board` (see
+# comments in that subroutine).
+#-------------------------------------------------------------------------------
+sub search_without_board {
+  my $needle = shift;
 
   open my $fh, '<', DICT
     or die "Can't open " . DICT . ": $!";
@@ -102,8 +156,7 @@ sub search {
     }
     # Found the word
     else {
-      $found = $line;
-      $found =~ s/^[^:]*?://;
+      $found = "$needle:$line";
       last;
     }
   }
@@ -113,13 +166,24 @@ sub search {
   return $found;
 }
 
+sub search {
+  my $needle = shift;
+  my $board  = shift;
+
+  if (defined $board) {
+    search_with_board($needle, $board);
+  } else {
+    search_without_board($needle);
+  }
+}
+
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
 my $words = words($TILES);
 
-while (defined(my $word = $words->())) {
-  if (defined(my $line = search($word))) {
+while (defined(my $key = $words->())) {
+  if (defined(my $line = search($key, $BOARD))) {
     say $line;
   }
 }
@@ -146,6 +210,12 @@ Prints a brief help message and exits.
 
 The string of tiles to use for the search. The tiles string may only include
 characters a-zA-Z or ? for a blank tile/wildcard.
+
+=item B<--board | -b>
+
+The board pattern to use for the search. The board pattern may only include
+characters a-zA-Z or _ for an empty space. The board pattern must include at
+least one empty space.
 
 =back
 
