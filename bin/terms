@@ -2,10 +2,9 @@
 
 use strict;
 use warnings;
-use feature qw(say);
-
-use Getopt::Long qw(GetOptions Configure);
-use Pod::Usage qw(pod2usage);
+use feature       qw(say);
+use Getopt::Long  qw(GetOptions Configure);
+use Pod::Usage    qw(pod2usage);
 
 use constant DICT => '/tmp/wordsetc.jsonl';
 
@@ -44,103 +43,66 @@ unless (-f DICT) {
 # Subroutines
 #-------------------------------------------------------------------------------
 sub does_word_fit {
-  my ($word, $start_pos, $row) = @_;
-  my $word_length = length $word;
-  my @new_key_chars;
+  my $word      = shift;
+  my $board     = shift;
+  my $board_len = length $board;
+  my $word_len  = length $word;
 
-  #-----------------------------------------------------------------------------
-  # Check if the word fits within the row without overlapping non-matching
-  # letters and track characters not on the board.
-  #-----------------------------------------------------------------------------
-  for (my $i = 0; $i < $word_length; ++$i) {
-    my $row_char = $row->[$start_pos + $i] // ''; # edge case outside row bounds
+  # Generate all possible positions the word could start
+  POSITION:
+  for my $start_pos (0 .. $board_len - $word_len) {
+    my $end_pos = $start_pos + $word_len - 1;
+    my @required_letters;
 
-    # If the character in the row is not an underscore and does not match the
-    # word's character, the word does not fit.
-    return if $row_char ne '_' && $row_char ne substr($word, $i, 1);
+    # Check if word fits, considering existing letters and empty spaces
+    for my $i (0 .. $word_len - 1) {
+      my $board_char = substr $board, $start_pos + $i, 1;
+      my $word_char  = substr $word, $i, 1;
 
-    # If the row character is an underscore, this character in the word is part
-    # of the new key.
-    push @new_key_chars, substr($word, $i, 1) if $row_char eq '_';
-  }
+      # Collect required letters (those that fill in blanks)
+      push @required_letters, $word_char
+        if $board_char eq '_';
 
-  #-----------------------------------------------------------------------------
-  # Ensure the word does not accidentally create a new word by extending
-  # adjacent letters.
-  #-----------------------------------------------------------------------------
-  return if $start_pos > 0 && $row->[$start_pos - 1] ne '_';
-  return if $start_pos + $word_length < @$row && $row->[$start_pos + $word_length] ne '_';
-
-  #-----------------------------------------------------------------------------
-  # If the word fits and we have tracked the characters not on the board, return
-  # the new key constructed from these characters.
-  #-----------------------------------------------------------------------------
-  return join '', sort @new_key_chars; # Sort the characters to form the new key
-}
-
-sub does_word_fit_old {
-  my ($word, $start_pos, $row) = @_;
-  my $word_length = length $word;
-
-  #-----------------------------------------------------------------------------
-  # Check if the word fits within the row without overlapping non-matching
-  # letters.
-  #-----------------------------------------------------------------------------
-  for (my $i = 0; $i < $word_length; ++$i) {
-    my $row_char = $row->[$start_pos + $i] // ''; # edge case outside row bounds
-
-    return
-      if $row_char ne '_'
-      && $row_char ne substr $word, $i, 1;
-  }
-
-  #-----------------------------------------------------------------------------
-  # Ensure the word does not accidentally create a new word by extending
-  # adjacent letters.
-  #-----------------------------------------------------------------------------
-  # Letter immediately before the word
-  return
-    if $start_pos > 0
-    && $row->[$start_pos - 1] ne '_';
-
-  # Letter immediately after the word
-  return
-    if $start_pos + $word_length < @$row
-    && $row->[$start_pos + $word_length] ne '_';
-
-  return 1;
-}
-
-sub is_legal_play {
-  my ($word, $row) = @_;
-
-  return 1 unless @$row;
-
-  my $word_length = length $word;
-  my $max_pos     = @$row - $word_length;
-
-  for (my $i = 0; $i < $max_pos; ++$i) {
-    if (my $key = does_word_fit($word, $i, $row)) {
-      return $key;
+      # If board position is not empty and does not match the word character,
+      # skip this position.
+      next POSITION
+        if $board_char ne '_'
+        && $board_char ne $word_char;
     }
+
+    # Invalid if there's a letter immediately before the word
+    next
+      if $start_pos > 0
+      && substr($board, $start_pos - 1, 1) ne '_';
+
+    # Invalid if there's a letter immediately after the word
+    next
+      if $end_pos < $board_len - 1
+      && substr($board, $end_pos + 1, 1) ne '_';
+
+
+    # If passed all checks, return the required letters
+    return join '', sort @required_letters;
   }
 
   return;
 }
 
-#-------------------------------------------------------------------------------
-# Main
-#-------------------------------------------------------------------------------
-my @row = split //, $BOARD // '';
+sub main {
+  open my $in, '<', '/tmp/wordsetc.jsonl'
+      or die "Can't open dictionary: $!";
 
-open my $in, '<', '/tmp/wordsetc.jsonl'
-  or die "Can't open dictionary: $!";
+  while (defined(my $line = <$in>)) {
+    chomp $line;
 
-while (defined(my $line = <$in>)) {
-  chomp $line;
-  my ($key, $word, $json) = split /:/, $line, 3;
+    my ($key, $word, $json) = split /:/, $line, 3;
 
-  if (my $subset_key = is_legal_play($word, \@row)) {
-    say "$subset_key:$line";
+    if (defined(my $tiles = does_word_fit($word, $BOARD))) {
+      say "$tiles:$line";
+    }
   }
+
+  close $in;
 }
+
+main;
