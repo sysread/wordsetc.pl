@@ -13,6 +13,8 @@ use constant BIN  => "$FindBin::Bin/../bin/wordsetc";
 #-------------------------------------------------------------------------------
 # Arguments
 #-------------------------------------------------------------------------------
+my $TILES;
+
 for (@ARGV) {
   if (/--help/ || /-h/) {
     pod2usage({ -verbose => 2, -exitval => 0 });
@@ -23,8 +25,12 @@ for (@ARGV) {
     exit 0;
   }
 
-  if ($_ !~ /^[a-zA-Z]+$/) {
-    pod2usage({ -verbose => 0, -exitval => 1, -message => "invalid: '$_' - letter sets may only include a-zA-Z\n"});
+  if (/-t/ || /--tiles/) {
+    shift @ARGV;
+    $TILES = shift @ARGV;
+
+    pod2usage({ -verbose => 0, -exitval => 1, -message => "invalid: '$_' - letter sets may only include a-zA-Z\n"})
+      if $TILES !~ /^[\?a-zA-Z]+$/;
   }
 }
 
@@ -103,13 +109,14 @@ sub search {
   }
 
   close $fh;
+
   return $found;
 }
 
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
-my $words = words(shift @ARGV);
+my $words = words($TILES);
 
 while (defined(my $word = $words->())) {
   if (defined(my $line = search($word))) {
@@ -131,9 +138,14 @@ wordsetc solve TILES_STRING
 
 =over 4
 
-=item B<--help>
+=item B<--help | -h>
 
 Prints a brief help message and exits.
+
+=item B<--tiles | -t>
+
+The string of tiles to use for the search. The tiles string may only include
+characters a-zA-Z or ? for a blank tile/wildcard.
 
 =back
 
