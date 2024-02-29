@@ -1,64 +1,89 @@
-#!/usr/bin/env perl
+#!/usr/bin/env bash
 
-use strict;
-use warnings;
-use feature qw(say);
+set -eu -o pipefail
 
-use Pod::Usage qw(pod2usage);
+TILES=
 
-use constant SCORES => {
-  A => 1,
-  B => 3,
-  C => 3,
-  D => 2,
-  E => 1,
-  F => 4,
-  G => 2,
-  H => 4,
-  I => 1,
-  J => 8,
-  K => 5,
-  L => 1,
-  M => 3,
-  N => 1,
-  O => 1,
-  P => 3,
-  Q => 10,
-  R => 1,
-  S => 1,
-  T => 1,
-  U => 1,
-  V => 4,
-  W => 4,
-  X => 8,
-  Y => 4,
-  Z => 10,
-};
+while (("$#")); do
+  case "$1" in
+    -h | --help)
+      echo "usage: score <string>"
+      echo "Calculate the Scrabble score for a word"
+      exit 0
+      ;;
 
-#-------------------------------------------------------------------------------
-# Check arguments
-#-------------------------------------------------------------------------------
-my $letters = '';
+    -H | --short-help)
+      echo "Calculate the Scrabble score for a word"
+      exit 0
+      ;;
 
-for (@ARGV) {
-  if (/--help/ || /-h/) {
-    pod2usage({ -verbose => 2, -exitval => 0 });
-  }
+    *)
+      if [ -n "$TILES" ]; then
+        echo "unexpected argument: $1" >&2
+        exit 1
+      fi
 
-  if (/--short-help/ || /-H/) {
-    say "does a thing";
-    exit 0;
-  }
+      TILES="$1"
+      shift
+      ;;
+  esac
+done
 
-  $letters .= uc $_;
-}
+if [ -z "$TILES" ]; then
+  echo "usage: $0 <string>" >&2
+  exit 1
+fi
 
-#-------------------------------------------------------------------------------
-# Main
-#-------------------------------------------------------------------------------
-my $score = 0;
-for (split //, $letters) {
-  $score += SCORES->{$_} // 0;
-}
+declare -i score=0
 
-say "$score";
+# Validate input
+if [[ ! "$TILES" =~ ^[a-zA-Z]+$ ]]; then
+  echo "input must contain only letters a-zA-Z" >&2
+  exit 1
+fi
+
+# Calculate score
+for ((i = 0; i < ${#TILES}; i++)); do
+  case "${TILES:$i:1}" in
+    A | E | I | O | U | L | N | S | T | R)
+      score+=1
+      ;;
+
+    D | G)
+      score+=2
+      ;;
+
+    B | C | M | P)
+      score+=3
+      ;;
+
+    F | H | V | W | Y)
+      score+=4
+      ;;
+
+    K)
+      score+=5
+      ;;
+
+    J | X)
+      score+=8
+      ;;
+
+    Q | Z)
+      score+=10
+      ;;
+
+    # wildcard, score 0
+    [a-z])
+      score+=0
+      ;;
+
+    # This case should never be reached due to the earlier validation
+    *)
+      echo "unexpected character: ${TILES:$i:1}" >&2
+      exit 1
+      ;;
+  esac
+done
+
+echo "$score"
