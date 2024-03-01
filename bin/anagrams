@@ -99,7 +99,7 @@ sub expand_subsets {
       }
     }
 
-    $subsets{$_} = 1 for @queue;
+    $subsets{$_} = 1 for grep{ /./ } @queue;
   }
 
   keys %subsets;
@@ -114,8 +114,19 @@ sub expand {
   # Add all subsets of @sets
   my @sets = expand_subsets @expanded;
 
+  my %seen;
+  my @results;
+  for my $set (@sets) {
+    my $key = join('', sort{ uc($a) cmp uc($b) } split(//, $set));
+
+    if ($seen{ uc($key) }++ == 0) {
+      push @results, $key;
+    }
+  }
+
   # Sort each possibility by character, then return the results, also sorted.
-  sort map { join '', sort split //, $_; } @sets;
+  sort{ uc($a) cmp uc($b) }
+    @results;
 }
 
 #-------------------------------------------------------------------------------
