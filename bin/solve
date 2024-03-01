@@ -101,11 +101,8 @@ sub search_with_board {
     %terms;
   };
 
-  for my $key (keys %terms) {
-    return $terms{$key}
-      if $key eq $needle;
-  }
-
+  my @matches = map{ $terms{$_} } grep{ /^$needle$/ } keys %terms;
+  return \@matches if @matches;
   return;
 }
 
@@ -117,53 +114,55 @@ sub search_with_board {
 #-------------------------------------------------------------------------------
 sub search_without_board {
   my $needle = shift;
+  my @matches;
 
   open my $fh, '<', DICT
     or die "Can't open " . DICT . ": $!";
 
-  my $file_size = -s $fh;
-  my ($left, $right) = (0, $file_size);
-  my $found;
-
-  while ($left <= $right) {
-    my $mid = int(($left + $right) / 2);
-
-    # Seek to the middle position in bytes
-    seek $fh, $mid, 0;
-
-    # Read forward to the next newline to ensure we're at the start of a line,
-    # but not if we're at the start of the file.
-    <$fh> if $mid != 0;
-
-    # Read the line
-    my $line = <$fh>;
-
-    # If we've reached the end of the file without finding a match, break
-    last unless defined $line;
-
-    chomp $line;
-
-    # Extract the word from the line
-    my ($word) = $line =~ /^([^:]+)/;
-
-    # Move the left boundary to the current position
-    if ($word lt $needle) {
-      $left = tell $fh;
-    }
-    # Move the right boundary to just before the mid position
-    elsif ($word gt $needle) {
-      $right = $mid - 1;
-    }
-    # Found the word
-    else {
-      $found = "$needle:$line";
-      last;
+  if (defined(seek_to_first_match($fh, uc($needle)))) {
+    while (defined(my $line = <$fh>)) {
+      if ($line =~ /^$needle:/i) {
+        chomp $line;
+        push @matches, "$needle:$line";
+      }
     }
   }
 
   close $fh;
 
-  return $found;
+  return \@matches if @matches;
+  return;
+}
+
+sub seek_to_first_match {
+  my ($fh, $target) = @_;
+
+  seek $fh, 0, 0;                                  # Seek to the start of the file for safety
+
+  my $left = 0;                                    # Set the left boundary
+  my $right = -s $fh;                              # Set the right boundary to the size of the file
+  my $first_line_pos;                              # Initialize the position of the first line
+
+  while ($left <= $right) {                        # While the left boundary is less than or equal to the right boundary
+    my $mid = int(($left + $right) / 2);           #   Find the middle of the file
+    seek $fh, $mid, 0;                             #   ...seek to the middle of the file
+    <$fh> if $mid > 0;                             #   ...skip partial line if not at the start of the file
+
+    my $line = <$fh>;                              #   Read the line at the current position, seeking to the the next line
+
+    if (defined $line && $line =~ /^$target:/) {   #   If the line matches the target:
+      $first_line_pos = tell($fh) - length($line); #   ...save the position of the first line
+      $right = $mid - 1;                           #   ...keep moving backward
+    }
+    elsif (defined $line && $line lt $target) {    #   If the line is less than the target:
+      $left = tell($fh);                           #   ...keep moving forward
+    }
+    else {                                         #   If the line is greater than the target:
+      $right = $mid - 1;                           #   ...keep moving backward
+    }
+  }
+
+  return $first_line_pos;
 }
 
 sub search {
@@ -183,8 +182,8 @@ sub search {
 my $words = words($TILES);
 
 while (defined(my $key = $words->())) {
-  if (defined(my $line = search($key, $BOARD))) {
-    say $line;
+  if (defined(my $lines = search($key, $BOARD))) {
+    say for @$lines;
   }
 }
 
